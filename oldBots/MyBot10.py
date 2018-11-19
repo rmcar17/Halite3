@@ -1,7 +1,6 @@
 import hlt
 from hlt import constants
 from hlt.positionals import Direction, Position
-from math import ceil
 import random
 import logging as log
 from time import time
@@ -9,7 +8,6 @@ from time import time
 game = hlt.Game()
 
 collectors = []
-suiciders = []
 returners = []
 explorers = []
 
@@ -58,8 +56,6 @@ class Navigator:
             moves.append(Direction.North)
         return moves
             
-average_halite = 0
-old_max_halite = 0
 
 game.ready(__file__)
 
@@ -80,78 +76,42 @@ while True:
 
     #SCORES FOR EACH TILE
     pos_scores = {}
-    max_halite = 0
-    total_halite = 0
-    
     for x in range(game_map.width):
         for y in range(game_map.height):
             pos = (x,y)
             cell = game_map[Position(*pos)]
-            total_halite += cell.halite_amount
-            if cell.is_occupied:
-                if cell.ship.owner == me.id:
-                    continue
-            if not cell.has_structure and cell.halite_amount > average_halite:
-                max_halite = max(max_halite, cell.halite_amount)
-                pos_scores[pos] = cell.halite_amount - (nav.calculate_distance(me.shipyard.position,Position(*pos))*20 if (average_halite > 40 and old_max_halite > 400) else 0)
-    old_max_halite = max_halite
-    average_halite = total_halite / (game_map.width * game_map.height)
-
-    danger_squares = []
-    for player in game.players:
-        if player == me.id:
-            continue
-        for ship in game.players[player].get_ships():
-            for direction in Direction.get_all_cardinals():
-                danger_squares.append(nav.normalise(ship.position.directional_offset(direction)))
+            if cell.is_empty:
+                pos_scores[pos] = cell.halite_amount - nav.calculate_distance(me.shipyard.position,Position(*pos))/1000
 
     
     #DECIDE ROLES
-        
     ships = me.get_ships()
     for ship in ships:
         ship_id = ship.id
         alive_ids.add(ship_id)
-        if ship_id in suiciders or nav.calculate_distance(ship.position,me.shipyard.position) > (constants.MAX_TURNS - game.turn_number) - len(ships) / 2:
-            if ship_id not in suiciders:
-                if ship_id in explorers:
-                    explorers.remove(ship_id)
-                elif ship_id in returners:
-                    returners.remove(ship_id)
-                else:
-                    collectors.remove(ship_id)
-                suiciders.append(ship_id)
-        else:
-            if ship_id not in (explorers + returners + collectors):
-                explorers.append(ship_id)
-            if (ship_id in explorers and game_map[ship.position].halite_amount > average_halite * 0.8) or (ship_id not in collectors and ship.halite_amount < ceil(game_map[ship.position].halite_amount / constants.MOVE_COST_RATIO)):
-                if ship_id in explorers:
-                    explorers.remove(ship_id)
-                else:
-                    returners.remove(ship_id)
-                collectors.append(ship_id)
-            elif (ship_id in collectors and (ship.halite_amount >= max(min(max_halite*3,constants.MAX_HALITE),constants.MAX_HALITE*0.9) or ship.is_full or ship.position in danger_squares)) or (ship_id not in returners and (ship.position in danger_squares or any([nav.normalise(ship.position.directional_offset(direction)) in danger_squares for direction in Direction.get_all_cardinals()])) and ship.halite_amount > max(min(max_halite*1.5,constants.MAX_HALITE),constants.MAX_HALITE*0.4)):
-                if ship_id in collectors:
-                    collectors.remove(ship_id)
-                else:
-                    explorers.remove(ship_id)
-                returners.append(ship_id)
-            elif (ship_id in returners and ship.position == me.shipyard.position) or (ship_id in collectors and game_map[ship.position].halite_amount < average_halite * 0.8):
-                if ship_id in collectors:
-                    collectors.remove(ship_id)
-                else:
-                    returners.remove(ship_id)
-                explorers.append(ship_id)
+        if ship_id not in (explorers + returners + collectors):
+            explorers.append(ship_id)
+        if (ship_id in explorers and game_map[ship.position].halite_amount > constants.MAX_HALITE / 10) or (ship_id not in collectors and ship.halite_amount < constants.MOVE_COST_RATIO * game_map[ship.position].halite_amount):
+            if ship_id in explorers:
+                explorers.remove(ship_id)
+            else:
+                returners.remove(ship_id)
+            collectors.append(ship_id)
+        elif ship_id in collectors and ship.halite_amount >= constants.MAX_HALITE / 2:
+            collectors.remove(ship_id)
+            returners.append(ship_id)
+        elif (ship_id in returners and ship.position == me.shipyard.position) or (ship_id in collectors and game_map[ship.position].halite_amount < constants.MAX_HALITE / 10):
+            if ship_id in collectors:
+                collectors.remove(ship_id)
+            else:
+                returners.remove(ship_id)
+            explorers.append(ship_id)
         
     #REMOVE DEAD SHIPS
     collectors = list(set(collectors) & alive_ids)
-    suiciders = list(set(suiciders) & alive_ids)
     returners = list(set(returners) & alive_ids)
     explorers = list(set(explorers) & alive_ids)
-
-    suiciders.sort(key=lambda ship_id: nav.calculate_distance(me.get_ship(ship_id).position,me.shipyard.position)-me.get_ship(ship_id).halite_amount/1000)
-    returners.sort(key=lambda ship_id: nav.calculate_distance(me.get_ship(ship_id).position,me.shipyard.position)-me.get_ship(ship_id).halite_amount/1000)
-    
+        
     #MOVE
     current_moves = []
     command_queue = []
@@ -162,43 +122,6 @@ while True:
         current_moves.append(ship.position)
         command_queue.append(ship.stay_still())
 
-    for s_id in suiciders:
-        ship = me.get_ship(s_id)
-        if ship.position == me.shipyard.position:
-            command_queue.append(ship.stay_still())
-            continue
-        
-        moves = nav.navigate(ship.position, me.shipyard.position)
-        backup_moves = list(set(Direction.get_all_cardinals()) - set(moves))
-        
-        valid_moves = []
-        move_score = []
-        for move in moves:
-            new_position = nav.normalise(ship.position.directional_offset(move))
-            if new_position not in current_moves:
-                valid_moves.append(move)
-                move_score.append(game_map[new_position].halite_amount)
-        if len(valid_moves) == 0:
-            backup_moves.sort(key=lambda direction: game_map[nav.normalise(ship.position.directional_offset(direction))].halite_amount)
-            found_move = False
-            for move in backup_moves:
-                new_position = nav.normalise(ship.position.directional_offset(move))
-                if new_position not in current_moves:
-                    found_move = True
-                    break
-            if found_move:
-                current_moves.append(nav.normalise(ship.position.directional_offset(move)))
-                command_queue.append(ship.move(move))
-            else:
-                current_moves.append(ship.position)
-                command_queue.append(ship.stay_still())
-        else:
-            move = valid_moves[move_score.index(min(move_score))]
-            current_moves.append(nav.normalise(ship.position.directional_offset(move)))
-            command_queue.append(ship.move(move))
-        if me.shipyard.position in current_moves:
-            current_moves.remove(me.shipyard.position)
-    
     # Returners
     for s_id in returners:
         ship = me.get_ship(s_id)
@@ -221,14 +144,14 @@ while True:
                     found_move = True
                     break
             if found_move:
-                current_moves.append(nav.normalise(ship.position.directional_offset(move)))
+                current_moves.append(ship.position.directional_offset(move))
                 command_queue.append(ship.move(move))
             else:
                 current_moves.append(ship.position)
                 command_queue.append(ship.stay_still())
         else:
             move = valid_moves[move_score.index(min(move_score))]
-            current_moves.append(nav.normalise(ship.position.directional_offset(move)))
+            current_moves.append(ship.position.directional_offset(move))
             command_queue.append(ship.move(move))
 
     # Explorers
@@ -263,14 +186,14 @@ while True:
                     found_move = True
                     break
             if found_move:
-                current_moves.append(nav.normalise(ship.position.directional_offset(move)))
+                current_moves.append(ship.position.directional_offset(move))
                 command_queue.append(ship.move(move))
             else:
                 current_moves.append(ship.position)
                 command_queue.append(ship.stay_still())
         else:
             move = valid_moves[move_score.index(max(move_score))]
-            current_moves.append(nav.normalise(ship.position.directional_offset(move)))
+            current_moves.append(ship.position.directional_offset(move))
             command_queue.append(ship.move(move))
         
     log.info(current_moves)

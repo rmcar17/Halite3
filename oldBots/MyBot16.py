@@ -1,7 +1,6 @@
 import hlt
 from hlt import constants
 from hlt.positionals import Direction, Position
-from math import ceil
 import random
 import logging as log
 from time import time
@@ -107,7 +106,7 @@ while True:
 
     
     #DECIDE ROLES
-        
+                
     ships = me.get_ships()
     for ship in ships:
         ship_id = ship.id
@@ -124,13 +123,13 @@ while True:
         else:
             if ship_id not in (explorers + returners + collectors):
                 explorers.append(ship_id)
-            if (ship_id in explorers and game_map[ship.position].halite_amount > average_halite * 0.8) or (ship_id not in collectors and ship.halite_amount < ceil(game_map[ship.position].halite_amount / constants.MOVE_COST_RATIO)):
+            if (ship_id in explorers and game_map[ship.position].halite_amount > average_halite * 0.8) or (ship_id not in collectors and ship.halite_amount < constants.MOVE_COST_RATIO * game_map[ship.position].halite_amount):
                 if ship_id in explorers:
                     explorers.remove(ship_id)
                 else:
                     returners.remove(ship_id)
                 collectors.append(ship_id)
-            elif (ship_id in collectors and (ship.halite_amount >= max(min(max_halite*3,constants.MAX_HALITE),constants.MAX_HALITE*0.9) or ship.is_full or ship.position in danger_squares)) or (ship_id not in returners and (ship.position in danger_squares or any([nav.normalise(ship.position.directional_offset(direction)) in danger_squares for direction in Direction.get_all_cardinals()])) and ship.halite_amount > max(min(max_halite*1.5,constants.MAX_HALITE),constants.MAX_HALITE*0.4)):
+            elif (ship_id in collectors and (ship.halite_amount >= max(max_halite,150) or ship.is_full or ship.position in danger_squares)) or (ship_id not in returners and (ship.position in danger_squares or any([nav.normalise(ship.position.directional_offset(direction)) in danger_squares for direction in Direction.get_all_cardinals()])) and ship.halite_amount > average_halite * 4):
                 if ship_id in collectors:
                     collectors.remove(ship_id)
                 else:
@@ -148,9 +147,6 @@ while True:
     suiciders = list(set(suiciders) & alive_ids)
     returners = list(set(returners) & alive_ids)
     explorers = list(set(explorers) & alive_ids)
-
-    suiciders.sort(key=lambda ship_id: nav.calculate_distance(me.get_ship(ship_id).position,me.shipyard.position)-me.get_ship(ship_id).halite_amount/1000)
-    returners.sort(key=lambda ship_id: nav.calculate_distance(me.get_ship(ship_id).position,me.shipyard.position)-me.get_ship(ship_id).halite_amount/1000)
     
     #MOVE
     current_moves = []
